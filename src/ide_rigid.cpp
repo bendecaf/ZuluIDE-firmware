@@ -841,8 +841,13 @@ bool IDERigidDevice::cmd_identify_device(ide_registers_t *regs)
     }
     idf[IDE_IDENTIFY_OFFSET_CAPABILITIES_1] = (m_phy_caps.supports_iordy ? 1 << 11 : 0) |
                                             (1 << 10) | // iordy may be disabled
-                                            (1 << 9)  |  // Shall be set to one
-                                            (1 << 8);    // Shall be set to one
+                                            (1 << 9);   // LBA supported
+    if (m_phy_caps.max_udma_mode >= 0)
+    {
+        // DMA supported, only UDMA is implemented, so this is not set when UDMA
+        // is disabled. Otherwise hosts may use DMA commands that cannot succeed.
+        idf[IDE_IDENTIFY_OFFSET_CAPABILITIES_1] |= (1 << 8);
+    }
     idf[IDE_IDENTIFY_OFFSET_PIO_MODE_ATA1] = (m_phy_caps.max_pio_mode << 8);
     // \todo set on older drives
     // idf[IDE_IDENTIFY_OFFSET_OLD_DMA_TIMING_MODE] = 0x0200;
