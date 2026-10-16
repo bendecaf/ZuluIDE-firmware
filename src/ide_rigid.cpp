@@ -726,6 +726,44 @@ bool IDERigidDevice::cmd_init_dev_params(ide_registers_t *regs)
     return true;
 }
 
+// Log the IDENTIFY DEVICE response in debug mode. To keep the log short and the
+// blocking UART output brief, only non-zero words are printed and only when the
+// response differs from the one previously logged for the same device.
+static void log_identify_response(int dev_index, const uint16_t *idf)
+{
+    static uint32_t prev_hash[2];
+    static bool prev_valid[2];
+
+    if (!g_log_debug || dev_index < 0 || dev_index > 1) return;
+
+    // FNV-1a hash instead of a full copy to save RAM
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < 256; i++)
+    {
+        hash = (hash ^ idf[i]) * 16777619u;
+    }
+    if (prev_valid[dev_index] && prev_hash[dev_index] == hash) return;
+    prev_hash[dev_index] = hash;
+    prev_valid[dev_index] = true;
+
+    dbgmsg("-- IDENTIFY DEVICE response (DEV", dev_index, "), non-zero words as word=value:");
+    char line[128];
+    size_t len = 0;
+    int count = 0;
+    for (int i = 0; i < 256; i++)
+    {
+        if (idf[i] == 0) continue;
+        len += snprintf(line + len, sizeof(line) - len, " %d=%04X", i, idf[i]);
+        if (++count == 10)
+        {
+            dbgmsg("----", line);
+            len = 0;
+            count = 0;
+        }
+    }
+    if (count > 0) dbgmsg("----", line);
+}
+
 // Responds with 512 bytes of identification data
 bool IDERigidDevice::cmd_identify_device(ide_registers_t *regs)
 {
@@ -915,6 +953,9 @@ bool IDERigidDevice::cmd_identify_device(ide_registers_t *regs)
     regs->error = 0;
     regs->status = IDE_STATUS_DEVRDY | IDE_STATUS_DSC;
     ide_phy_set_regs(regs);
+
+    // Logged after completion so the host is not kept waiting for the data
+    log_identify_response(m_devconfig.dev_index, idf);
     return true;
 }
 
