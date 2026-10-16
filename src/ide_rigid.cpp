@@ -563,8 +563,13 @@ bool IDERigidDevice::cmd_read(ide_registers_t *regs, bool dma_transfer, bool ver
 
 bool IDERigidDevice::cmd_write(ide_registers_t *regs, bool dma_transfer, bool is_multiple)
 {
-    if (dma_transfer && m_phy_caps.max_udma_mode < 0)
+    // Without a selected DMA mode the transfer would be started as PIO,
+    // which the host waiting for a DMA transfer never completes.
+    if (dma_transfer && m_ata_state.udma_mode < 0)
+    {
+        dbgmsg("WRITE DMA when DMA mode is not set");
         return false;
+    }
 
     if (is_multiple && m_ata_state.multiple_mode_sectors == 0)
     {
