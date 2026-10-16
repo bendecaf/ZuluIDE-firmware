@@ -77,6 +77,20 @@ void IDERigidDevice::initialize(int devidx)
     memset(&m_removable, 0, sizeof(m_removable));
     m_devinfo.bytes_per_sector = 512;
     m_devinfo.seek_delay_ms = ini_getl("IDE", "seek_delay", 1, CONFIGFILE);
+
+    m_devinfo.assume_udma_mode = ini_getl("IDE", "assume_udma_mode", -1, CONFIGFILE);
+    if (m_devinfo.assume_udma_mode < 0)
+    {
+        m_devinfo.assume_udma_mode = -1;
+    }
+    else if (m_devinfo.assume_udma_mode > m_phy_caps.max_udma_mode)
+    {
+        if (m_phy_caps.max_udma_mode < 0)
+            logmsg("-- Ignoring assume_udma_mode = ", m_devinfo.assume_udma_mode, " because UDMA is disabled");
+        else
+            logmsg("-- Limiting assume_udma_mode = ", m_devinfo.assume_udma_mode, " to max UDMA mode ", m_phy_caps.max_udma_mode);
+        m_devinfo.assume_udma_mode = m_phy_caps.max_udma_mode;
+    }
 }
 
 void IDERigidDevice::print_device_config()
@@ -86,6 +100,10 @@ void IDERigidDevice::print_device_config()
     logmsg("-- ATA hard drive, image ", imgfile);
     IDEDevice::print_device_config();
     logmsg("-- Max set multiple: ", (int) m_devconfig.max_set_multiple, " (phy max ", (int)m_phy_caps.max_set_multiple, ")");
+    if (m_devinfo.assume_udma_mode >= 0)
+    {
+        logmsg("-- Assuming UDMA mode ", m_devinfo.assume_udma_mode, " for DMA commands without SET FEATURES (assume_udma_mode)");
+    }
 }
 
 void IDERigidDevice::post_image_setup()
@@ -416,9 +434,25 @@ static void copy_id_string(uint16_t *dst, size_t maxwords, const char *src)
     }
 }
 
+// Some hosts issue DMA commands without selecting a transfer mode with SET FEATURES.
+// Those commands are aborted unless a mode to assume is configured with assume_udma_mode.
+// The assumed mode stays selected until the next hardware reset.
+bool IDERigidDevice::select_dma_mode()
+{
+    if (m_ata_state.udma_mode >= 0)
+        return true;
+
+    if (m_devinfo.assume_udma_mode < 0)
+        return false;
+
+    dbgmsg("-- DMA command without SET FEATURES, assuming UDMA mode ", m_devinfo.assume_udma_mode);
+    m_ata_state.udma_mode = m_devinfo.assume_udma_mode;
+    return true;
+}
+
 bool IDERigidDevice::cmd_read(ide_registers_t *regs, bool dma_transfer, bool verify_only, bool is_multiple)
 {
-    if (dma_transfer && m_ata_state.udma_mode < 0)
+    if (dma_transfer && !select_dma_mode())
     {
         dbgmsg("READ DMA when DMA mode is not set");
         return false;
@@ -565,7 +599,7 @@ bool IDERigidDevice::cmd_write(ide_registers_t *regs, bool dma_transfer, bool is
 {
     // Without a selected DMA mode the transfer would be started as PIO,
     // which the host waiting for a DMA transfer never completes.
-    if (dma_transfer && m_ata_state.udma_mode < 0)
+    if (dma_transfer && !select_dma_mode())
     {
         dbgmsg("WRITE DMA when DMA mode is not set");
         return false;

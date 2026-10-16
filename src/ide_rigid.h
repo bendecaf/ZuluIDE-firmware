@@ -111,6 +111,8 @@ protected:
         uint32_t seek_delay_ms;
         uint32_t seek_start_time_ms;
         bool seek_executed;
+        // UDMA mode to use for DMA commands when the host has not selected one, -1 to abort them
+        int assume_udma_mode;
     } m_devinfo;
 
     enum ata_data_state_t {
@@ -171,6 +173,8 @@ protected:
     // Helper methods
     // convert lba to cylinder, head, sector values
     void lba2chs(const uint32_t lba, uint16_t &cylinder, uint8_t &head, uint8_t &sector);
+    // Returns true if a UDMA mode is selected or assumed for a DMA command
+    bool select_dma_mode();
     // Methods used by ATA command implementations
     // send data
     ssize_t ata_send_data(const uint8_t *data, size_t blocksize, size_t num_blocks);
